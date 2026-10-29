@@ -1,0 +1,6 @@
+{
+  "name": "PT. Inovasi Digital Kreasi - Sistem Internal",
+  "description": "Sistem internal keuangan, pengajuan dana, transfer bank, pencatatan uang masuk, dan manajemen operasional PT. Inovasi Digital Kreasi.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
