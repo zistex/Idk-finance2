@@ -8,19 +8,39 @@ export const LoginPage: React.FC = () => {
   const [password, setPassword] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
-    const success = login(email, password);
-    if (!success) {
-      setErrorMsg('Email atau password tidak sesuai. Silakan periksa kembali.');
+    setIsSubmitting(true);
+    try {
+      const success = await login(email, password);
+      if (!success) {
+        setErrorMsg('Email atau password tidak sesuai. Silakan periksa kembali.');
+      }
+    } catch {
+      setErrorMsg('Gagal terhubung ke server. Silakan coba lagi.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const handleQuickLogin = (roleEmail: string, rolePass: string) => {
+  const handleQuickLogin = async (roleEmail: string, rolePass: string) => {
     setEmail(roleEmail);
     setPassword(rolePass);
-    login(roleEmail, rolePass);
+    setIsSubmitting(true);
+    setErrorMsg('');
+    try {
+      const success = await login(roleEmail, rolePass);
+      if (!success) {
+        setErrorMsg('Gagal masuk dengan akun demo.');
+      }
+    } catch {
+      setErrorMsg('Gagal terhubung ke server.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (

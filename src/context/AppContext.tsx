@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import {
   User,
   Employee,
@@ -12,19 +12,8 @@ import {
   ApiSettings,
   UserRole,
 } from '../types';
-import {
-  INITIAL_USERS,
-  INITIAL_EMPLOYEES,
-  INITIAL_CATEGORIES,
-  INITIAL_PROJECTS,
-  INITIAL_FUND_REQUESTS,
-  INITIAL_GROUP_DISBURSEMENTS,
-  INITIAL_INCOME_RECORDS,
-  INITIAL_TRANSACTIONS,
-  INITIAL_LOGS,
-  INITIAL_API_SETTINGS,
-} from '../data/mockData';
-import { generateRandomKey } from '../utils/formatters';
+import { api } from '../services/api';
+import { formatRupiah } from '../utils/formatters';
 
 interface AppContextType {
   currentUser: User | null;
@@ -32,9 +21,10 @@ interface AppContextType {
   setActiveMenu: (menu: string) => void;
   isSidebarOpen: boolean;
   setIsSidebarOpen: (open: boolean) => void;
+  isLoading: boolean;
   
   // Auth
-  login: (email: string, pass: string) => boolean;
+  login: (email: string, pass: string) => Promise<boolean>;
   logout: () => void;
   switchUser: (role: UserRole) => void;
   
@@ -64,6 +54,7 @@ interface AppContextType {
   createGroupDisbursement: (data: Omit<GroupDisbursement, 'id' | 'createdAt'>) => GroupDisbursement;
   updateGroupDisbursement: (id: string, data: Partial<GroupDisbursement>) => void;
   deleteGroupDisbursement: (id: string) => void;
+  executeGroupDisbursement: (id: string) => void;
   
   // Income Record Actions
   createIncomeRecord: (data: Omit<IncomeRecord, 'id' | 'createdAt' | 'createdBy'>) => IncomeRecord;
@@ -90,22 +81,20 @@ interface AppContextType {
   regenerateApiKeys: () => void;
   addLog: (action: string, detail: string) => void;
   resetAllData: () => void;
+  refreshAllData: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 const STORAGE_KEYS = {
   CURRENT_USER: 'idk_current_user',
-  EMPLOYEES: 'idk_employees',
-  CATEGORIES: 'idk_categories',
-  PROJECTS: 'idk_projects',
-  USERS: 'idk_users',
-  FUND_REQUESTS: 'idk_fund_requests',
-  GROUP_DISBURSEMENTS: 'idk_group_disbursements',
-  INCOME_RECORDS: 'idk_income_records',
-  TRANSACTIONS: 'idk_transactions',
-  LOGS: 'idk_logs',
-  API_SETTINGS: 'idk_api_settings',
+};
+
+const DEFAULT_API_SETTINGS: ApiSettings = {
+  apiKey: 'idk_live_9a8f7e6d5c4b3a21',
+  secretKey: 'idk_sec_4f8e1a9c2b3d7e6f8a0b1c2d3e4f5a6b',
+  lastGeneratedAt: new Date().toISOString(),
+  generatedBy: 'Budi Santoso',
 };
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -123,6 +112,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [activeMenu, setActiveMenu] = useState<string>('pengajuan_dana');
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
 
   // Set default active menu based on role
   useEffect(() => {
@@ -133,58 +123,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [currentUser?.role]);
 
-  // Data states with persistence
-  const [employees, setEmployees] = useState<Employee[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.EMPLOYEES);
-    return saved ? JSON.parse(saved) : INITIAL_EMPLOYEES;
-  });
+  // Data states loaded strictly from backend SQLite API
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [categories, setCategories] = useState<IncomeCategory[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [fundRequests, setFundRequests] = useState<FundRequest[]>([]);
+  const [groupDisbursements, setGroupDisbursements] = useState<GroupDisbursement[]>([]);
+  const [incomeRecords, setIncomeRecords] = useState<IncomeRecord[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [logs, setLogs] = useState<SystemLog[]>([]);
+  const [apiSettings, setApiSettings] = useState<ApiSettings>(DEFAULT_API_SETTINGS);
 
-  const [categories, setCategories] = useState<IncomeCategory[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.CATEGORIES);
-    return saved ? JSON.parse(saved) : INITIAL_CATEGORIES;
-  });
-
-  const [projects, setProjects] = useState<Project[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.PROJECTS);
-    return saved ? JSON.parse(saved) : INITIAL_PROJECTS;
-  });
-
-  const [users, setUsers] = useState<User[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.USERS);
-    return saved ? JSON.parse(saved) : INITIAL_USERS;
-  });
-
-  const [fundRequests, setFundRequests] = useState<FundRequest[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.FUND_REQUESTS);
-    return saved ? JSON.parse(saved) : INITIAL_FUND_REQUESTS;
-  });
-
-  const [groupDisbursements, setGroupDisbursements] = useState<GroupDisbursement[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.GROUP_DISBURSEMENTS);
-    return saved ? JSON.parse(saved) : INITIAL_GROUP_DISBURSEMENTS;
-  });
-
-  const [incomeRecords, setIncomeRecords] = useState<IncomeRecord[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.INCOME_RECORDS);
-    return saved ? JSON.parse(saved) : INITIAL_INCOME_RECORDS;
-  });
-
-  const [transactions, setTransactions] = useState<Transaction[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.TRANSACTIONS);
-    return saved ? JSON.parse(saved) : INITIAL_TRANSACTIONS;
-  });
-
-  const [logs, setLogs] = useState<SystemLog[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.LOGS);
-    return saved ? JSON.parse(saved) : INITIAL_LOGS;
-  });
-
-  const [apiSettings, setApiSettings] = useState<ApiSettings>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.API_SETTINGS);
-    return saved ? JSON.parse(saved) : INITIAL_API_SETTINGS;
-  });
-
-  // Sync to localStorage
+  // Sync currentUser to localStorage
   useEffect(() => {
     if (currentUser) {
       localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(currentUser));
@@ -193,45 +144,54 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [currentUser]);
 
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(employees));
-  }, [employees]);
+  // Fetch all initial data from SQLite Express Backend
+  const refreshAllData = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const [
+        emps,
+        cats,
+        prjs,
+        usrs,
+        reqs,
+        grps,
+        incs,
+        trxs,
+        lgs,
+        sett,
+      ] = await Promise.all([
+        api.getEmployees().catch(() => []),
+        api.getCategories().catch(() => []),
+        api.getProjects().catch(() => []),
+        api.getUsers().catch(() => []),
+        api.getFundRequests().catch(() => []),
+        api.getGroupDisbursements().catch(() => []),
+        api.getIncomeRecords().catch(() => []),
+        api.getTransactions().catch(() => []),
+        api.getLogs().catch(() => []),
+        api.getApiSettings().catch(() => DEFAULT_API_SETTINGS),
+      ]);
+
+      setEmployees(emps);
+      setCategories(cats);
+      setProjects(prjs);
+      setUsers(usrs);
+      setFundRequests(reqs);
+      setGroupDisbursements(grps);
+      setIncomeRecords(incs);
+      setTransactions(trxs);
+      setLogs(lgs);
+      setApiSettings(sett);
+    } catch (err) {
+      console.error('Failed to load data from SQLite backend:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.CATEGORIES, JSON.stringify(categories));
-  }, [categories]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(projects));
-  }, [projects]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
-  }, [users]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.FUND_REQUESTS, JSON.stringify(fundRequests));
-  }, [fundRequests]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.GROUP_DISBURSEMENTS, JSON.stringify(groupDisbursements));
-  }, [groupDisbursements]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.INCOME_RECORDS, JSON.stringify(incomeRecords));
-  }, [incomeRecords]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(transactions));
-  }, [transactions]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(logs));
-  }, [logs]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.API_SETTINGS, JSON.stringify(apiSettings));
-  }, [apiSettings]);
+    refreshAllData();
+  }, [refreshAllData]);
 
   // Log Helper
   const addLog = (action: string, detail: string) => {
@@ -242,22 +202,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       role: currentUser ? currentUser.role : 'system',
       action,
       detail,
-      ipAddress: '192.168.1.10',
+      ipAddress: '127.0.0.1',
     };
     setLogs((prev) => [newLog, ...prev]);
+
+    // Async sync to SQLite
+    api.addLog(action, detail, currentUser?.name, currentUser?.role).catch(console.error);
   };
 
   // Auth
-  const login = (email: string, pass: string): boolean => {
-    const found = users.find(
-      (u) => u.email.toLowerCase() === email.toLowerCase() && u.password === pass
-    );
-    if (found) {
-      setCurrentUser(found);
-      addLog('USER_LOGIN', `User ${found.name} (${found.role}) berhasil masuk ke sistem.`);
+  const login = async (email: string, pass: string): Promise<boolean> => {
+    try {
+      const loggedUser = await api.login(email, pass);
+      setCurrentUser(loggedUser);
+      localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(loggedUser));
+      await refreshAllData();
       return true;
+    } catch (err) {
+      // Fallback check against cached users if offline/temporary
+      const found = users.find(
+        (u) => u.email.toLowerCase() === email.toLowerCase() && u.password === pass
+      );
+      if (found) {
+        setCurrentUser(found);
+        localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(found));
+        addLog('USER_LOGIN', `User ${found.name} (${found.role}) berhasil masuk ke sistem.`);
+        return true;
+      }
+      return false;
     }
-    return false;
   };
 
   const logout = () => {
@@ -298,14 +271,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       nomorPengajuan,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      createdBy: currentUser ? currentUser.name : 'PIC',
+      createdBy: currentUser ? currentUser.name : (data.sumber === 'pic' ? data.picName || 'PIC Lapangan' : 'Finance Manager'),
     };
 
     setFundRequests((prev) => [newRequest, ...prev]);
-    addLog(
-      `CREATE_PENGAJUAN_${code}`,
-      `Membuat pengajuan dana ${data.kategori} (${nomorPengajuan}) sejumlah Rp ${data.jumlah.toLocaleString('id-ID')} [Sumber: ${data.sumber.toUpperCase()}].`
-    );
+
+    // Persist to backend SQLite
+    api.createFundRequest(newRequest)
+      .then((saved) => {
+        setFundRequests((prev) => prev.map((r) => r.id === newRequest.id ? saved : r));
+        api.getLogs().then(setLogs).catch(console.error);
+      })
+      .catch((err) => console.error('Error saving fund request to backend:', err));
 
     return newRequest;
   };
@@ -314,45 +291,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setFundRequests((prev) =>
       prev.map((item) => (item.id === id ? { ...item, ...updatedFields, updatedAt: new Date().toISOString() } : item))
     );
-    addLog('UPDATE_PENGAJUAN', `Memperbarui data pengajuan dana ID ${id}`);
+    api.updateFundRequest(id, updatedFields)
+      .then(() => api.getLogs().then(setLogs))
+      .catch(console.error);
   };
 
   const deleteFundRequest = (id: string) => {
-    const req = fundRequests.find((r) => r.id === id);
     setFundRequests((prev) => prev.filter((item) => item.id !== id));
-    addLog('DELETE_PENGAJUAN', `Menghapus pengajuan dana ${req?.nomorPengajuan || id}`);
+    api.deleteFundRequest(id)
+      .then(() => api.getLogs().then(setLogs))
+      .catch(console.error);
   };
 
   const reviewPicRequest = (id: string, action: 'approve' | 'reject', notes?: string) => {
     setFundRequests((prev) =>
       prev.map((req) => {
         if (req.id !== id) return req;
-        if (action === 'approve') {
-          return {
-            ...req,
-            status: 'pending_admin_approval',
-            updatedAt: new Date().toISOString(),
-          };
-        } else {
-          return {
-            ...req,
-            status: 'rejected',
-            catatanPenolakan: notes || 'Ditolak oleh Finance Manager',
-            updatedAt: new Date().toISOString(),
-          };
-        }
+        return {
+          ...req,
+          status: action === 'approve' ? 'pending_admin_approval' : 'rejected',
+          catatanPenolakan: action === 'reject' ? notes || 'Ditolak oleh Finance Manager' : req.catatanPenolakan,
+          updatedAt: new Date().toISOString(),
+        };
       })
     );
-    addLog(
-      `REVIEW_PIC_${action.toUpperCase()}`,
-      `Finance Manager ${action === 'approve' ? 'menyetujui & meneruskan ke Admin' : 'menolak'} pengajuan PIC ID ${id}`
-    );
+
+    api.reviewPicRequest(id, action, notes)
+      .then((updated) => {
+        setFundRequests((prev) => prev.map((r) => (r.id === id ? updated : r)));
+        api.getLogs().then(setLogs);
+      })
+      .catch(console.error);
   };
 
   const adminApproveRequest = (id: string) => {
-    const target = fundRequests.find((r) => r.id === id);
-    if (!target) return;
-
     setFundRequests((prev) =>
       prev.map((req) =>
         req.id === id
@@ -365,16 +337,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       )
     );
 
-    addLog(
-      'ADMIN_APPROVE_PENGAJUAN',
-      `Admin menyetujui pengajuan dana ${target.nomorPengajuan} (${target.kategori}) senilai Rp ${target.jumlah.toLocaleString('id-ID')}`
-    );
+    api.adminApproveRequest(id)
+      .then((updated) => {
+        setFundRequests((prev) => prev.map((r) => (r.id === id ? updated : r)));
+        api.getLogs().then(setLogs);
+      })
+      .catch(console.error);
   };
 
   const adminRejectRequest = (id: string, notes: string) => {
-    const target = fundRequests.find((r) => r.id === id);
-    if (!target) return;
-
     setFundRequests((prev) =>
       prev.map((req) =>
         req.id === id
@@ -388,10 +359,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       )
     );
 
-    addLog(
-      'ADMIN_REJECT_PENGAJUAN',
-      `Admin menolak pengajuan dana ${target.nomorPengajuan} dengan catatan: "${notes}"`
-    );
+    api.adminRejectRequest(id, notes)
+      .then((updated) => {
+        setFundRequests((prev) => prev.map((r) => (r.id === id ? updated : r)));
+        api.getLogs().then(setLogs);
+      })
+      .catch(console.error);
   };
 
   const reviseFundRequest = (id: string, updatedFields: Partial<FundRequest>, revisionNotes: string) => {
@@ -423,10 +396,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       )
     );
 
-    addLog(
-      'REVISI_PENGAJUAN',
-      `Finance Manager merevisi pengajuan ${target.nomorPengajuan} dan mengajukan ulang ke Admin: "${revisionNotes}"`
-    );
+    api.reviseFundRequest(id, updatedFields, revisionNotes, currentUser?.name)
+      .then((updated) => {
+        setFundRequests((prev) => prev.map((r) => (r.id === id ? updated : r)));
+        api.getLogs().then(setLogs);
+      })
+      .catch(console.error);
   };
 
   const uploadTransferProof = (
@@ -438,6 +413,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const target = fundRequests.find((r) => r.id === id);
     if (!target) return;
 
+    const dateStr = tanggalTransfer || new Date().toISOString().split('T')[0];
+
     setFundRequests((prev) =>
       prev.map((req) =>
         req.id === id
@@ -446,7 +423,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               status: 'done',
               buktiTransferNama: proofName,
               buktiTransferUrl: proofUrl,
-              tanggalTransfer: tanggalTransfer || new Date().toISOString().split('T')[0],
+              tanggalTransfer: dateStr,
               disbursedBy: currentUser ? currentUser.name : 'Finance Manager',
               updatedAt: new Date().toISOString(),
             }
@@ -457,7 +434,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Otomatis catat ke Daftar Transaksi sebagai Uang Keluar
     const newTrx: Transaction = {
       id: `trx-${Date.now()}`,
-      tanggal: tanggalTransfer || new Date().toISOString().split('T')[0],
+      tanggal: dateStr,
       namaProyek: target.namaProyek || 'PT Inovasi Digital Kreasi',
       judul: target.keterangan || `Transfer ${target.kategori} ${target.nomorPengajuan}`,
       status: 'done',
@@ -468,10 +445,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     setTransactions((prev) => [newTrx, ...prev]);
 
-    addLog(
-      'UPLOAD_BUKTI_TRANSFER',
-      `Bukti transfer diunggah untuk ${target.nomorPengajuan} (${formatRupiahSimple(target.jumlah)}). Status menjadi DONE.`
-    );
+    api.uploadTransferProof(id, proofName, proofUrl, dateStr, currentUser?.name)
+      .then(() => {
+        api.getTransactions().then(setTransactions);
+        api.getLogs().then(setLogs);
+      })
+      .catch(console.error);
   };
 
   // Group Disbursement
@@ -484,7 +463,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       createdAt: new Date().toISOString(),
     };
     setGroupDisbursements((prev) => [newGroup, ...prev]);
-    addLog('CREATE_GROUP_DISBURSEMENT', `Membuat Group Disbursement "${data.judul}" (${data.details.length} penerima, Rp ${data.totalNominal.toLocaleString('id-ID')})`);
+
+    api.createGroupDisbursement(data)
+      .then((saved) => {
+        setGroupDisbursements((prev) => prev.map((g) => (g.id === newGroup.id ? saved : g)));
+        api.getLogs().then(setLogs);
+      })
+      .catch(console.error);
+
     return newGroup;
   };
 
@@ -492,13 +478,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setGroupDisbursements((prev) =>
       prev.map((g) => (g.id === id ? { ...g, ...data } : g))
     );
-    addLog('UPDATE_GROUP_DISBURSEMENT', `Memperbarui Group Disbursement ID ${id}`);
+    api.updateGroupDisbursement(id, data)
+      .then(() => api.getLogs().then(setLogs))
+      .catch(console.error);
   };
 
   const deleteGroupDisbursement = (id: string) => {
-    const grp = groupDisbursements.find((g) => g.id === id);
     setGroupDisbursements((prev) => prev.filter((g) => g.id !== id));
-    addLog('DELETE_GROUP_DISBURSEMENT', `Menghapus Group Disbursement "${grp?.judul || id}"`);
+    api.deleteGroupDisbursement(id)
+      .then(() => api.getLogs().then(setLogs))
+      .catch(console.error);
+  };
+
+  const executeGroupDisbursement = (id: string) => {
+    api.executeGroupDisbursement(id, currentUser?.name)
+      .then(() => {
+        api.getTransactions().then(setTransactions);
+        api.getLogs().then(setLogs);
+      })
+      .catch(console.error);
   };
 
   // Income Records
@@ -514,7 +512,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setIncomeRecords((prev) => [newRec, ...prev]);
 
     // Otomatis catat ke Daftar Transaksi sebagai Uang Masuk
-    const dateOnly = data.hariTanggal.split(', ')[1] || new Date().toISOString().split('T')[0];
+    const dateOnly = data.hariTanggal.includes(', ')
+      ? data.hariTanggal.split(', ')[1]
+      : new Date().toISOString().split('T')[0];
+
     const newTrx: Transaction = {
       id: `trx-inc-${Date.now()}`,
       tanggal: dateOnly,
@@ -528,18 +529,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     setTransactions((prev) => [newTrx, ...prev]);
 
-    addLog(
-      'CATAT_UANG_MASUK',
-      `Mencatat uang masuk ${data.namaProyek} (${data.metodePembayaran}) dari ${data.namaPengirim} sebesar Rp ${data.jumlah.toLocaleString('id-ID')}`
-    );
+    api.createIncomeRecord({ ...data, createdBy: currentUser?.name })
+      .then((saved) => {
+        setIncomeRecords((prev) => prev.map((i) => (i.id === newRec.id ? saved : i)));
+        api.getTransactions().then(setTransactions);
+        api.getLogs().then(setLogs);
+      })
+      .catch(console.error);
+
     return newRec;
   };
 
   const deleteIncomeRecord = (id: string) => {
-    const rec = incomeRecords.find((i) => i.id === id);
     setIncomeRecords((prev) => prev.filter((i) => i.id !== id));
     setTransactions((prev) => prev.filter((t) => t.referensiId !== id));
-    addLog('DELETE_UANG_MASUK', `Menghapus pencatatan uang masuk ID ${id} (${rec?.namaProyek})`);
+
+    api.deleteIncomeRecord(id)
+      .then(() => {
+        api.getTransactions().then(setTransactions);
+        api.getLogs().then(setLogs);
+      })
+      .catch(console.error);
   };
 
   // Master Employee
@@ -550,7 +560,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       createdAt: new Date().toISOString(),
     };
     setEmployees((prev) => [newEmp, ...prev]);
-    addLog('ADD_EMPLOYEE', `Menambahkan karyawan baru: ${emp.nama} (${emp.bank} ${emp.noRek})`);
+
+    api.createEmployee(emp)
+      .then((saved) => {
+        setEmployees((prev) => prev.map((e) => (e.id === newEmp.id ? saved : e)));
+        api.getLogs().then(setLogs);
+      })
+      .catch(console.error);
+
     return newEmp;
   };
 
@@ -558,13 +575,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setEmployees((prev) =>
       prev.map((e) => (e.id === id ? { ...e, ...emp } : e))
     );
-    addLog('UPDATE_EMPLOYEE', `Memperbarui data karyawan ID ${id}`);
+    api.updateEmployee(id, emp)
+      .then(() => api.getLogs().then(setLogs))
+      .catch(console.error);
   };
 
   const deleteEmployee = (id: string) => {
-    const emp = employees.find((e) => e.id === id);
     setEmployees((prev) => prev.filter((e) => e.id !== id));
-    addLog('DELETE_EMPLOYEE', `Menghapus karyawan: ${emp?.nama || id}`);
+    api.deleteEmployee(id)
+      .then(() => api.getLogs().then(setLogs))
+      .catch(console.error);
   };
 
   // Master Category
@@ -574,7 +594,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: `cat-${Date.now()}`,
     };
     setCategories((prev) => [...prev, newCat]);
-    addLog('ADD_KATEGORI', `Menambahkan kategori uang masuk: ${cat.keterangan}`);
+
+    api.createCategory(cat)
+      .then((saved) => {
+        setCategories((prev) => prev.map((c) => (c.id === newCat.id ? saved : c)));
+        api.getLogs().then(setLogs);
+      })
+      .catch(console.error);
+
     return newCat;
   };
 
@@ -582,13 +609,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCategories((prev) =>
       prev.map((c) => (c.id === id ? { ...c, ...cat } : c))
     );
-    addLog('UPDATE_KATEGORI', `Memperbarui kategori ID ${id}`);
+    api.updateCategory(id, cat)
+      .then(() => api.getLogs().then(setLogs))
+      .catch(console.error);
   };
 
   const deleteCategory = (id: string) => {
-    const c = categories.find((cat) => cat.id === id);
     setCategories((prev) => prev.filter((cat) => cat.id !== id));
-    addLog('DELETE_KATEGORI', `Menghapus kategori: ${c?.keterangan || id}`);
+    api.deleteCategory(id)
+      .then(() => api.getLogs().then(setLogs))
+      .catch(console.error);
   };
 
   // Master Project
@@ -598,7 +628,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: `prj-${Date.now()}`,
     };
     setProjects((prev) => [...prev, newPrj]);
-    addLog('ADD_PROYEK', `Menambahkan proyek: ${prj.nama} (${prj.kode})`);
+
+    api.createProject(prj)
+      .then((saved) => {
+        setProjects((prev) => prev.map((p) => (p.id === newPrj.id ? saved : p)));
+        api.getLogs().then(setLogs);
+      })
+      .catch(console.error);
+
     return newPrj;
   };
 
@@ -606,13 +643,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setProjects((prev) =>
       prev.map((p) => (p.id === id ? { ...p, ...prj } : p))
     );
-    addLog('UPDATE_PROYEK', `Memperbarui proyek ID ${id}`);
+    api.updateProject(id, prj)
+      .then(() => api.getLogs().then(setLogs))
+      .catch(console.error);
   };
 
   const deleteProject = (id: string) => {
-    const prj = projects.find((p) => p.id === id);
     setProjects((prev) => prev.filter((p) => p.id !== id));
-    addLog('DELETE_PROYEK', `Menghapus proyek: ${prj?.nama || id}`);
+    api.deleteProject(id)
+      .then(() => api.getLogs().then(setLogs))
+      .catch(console.error);
   };
 
   // Master User
@@ -623,7 +663,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       createdAt: new Date().toISOString(),
     };
     setUsers((prev) => [...prev, newUser]);
-    addLog('ADD_USER', `Menambahkan pengguna baru: ${usr.name} [Role: ${usr.role}]`);
+
+    api.createUser(usr)
+      .then((saved) => {
+        setUsers((prev) => prev.map((u) => (u.id === newUser.id ? saved : u)));
+        api.getLogs().then(setLogs);
+      })
+      .catch(console.error);
+
     return newUser;
   };
 
@@ -631,41 +678,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setUsers((prev) =>
       prev.map((u) => (u.id === id ? { ...u, ...usr } : u))
     );
-    addLog('UPDATE_USER', `Memperbarui user ID ${id}`);
+    api.updateUser(id, usr)
+      .then(() => api.getLogs().then(setLogs))
+      .catch(console.error);
   };
 
   const deleteUser = (id: string) => {
-    const usr = users.find((u) => u.id === id);
     setUsers((prev) => prev.filter((u) => u.id !== id));
-    addLog('DELETE_USER', `Menghapus user: ${usr?.name || id}`);
+    api.deleteUser(id)
+      .then(() => api.getLogs().then(setLogs))
+      .catch(console.error);
   };
 
   // Settings
   const regenerateApiKeys = () => {
-    const newKey = generateRandomKey('idk_live_', 32);
-    const newSecret = generateRandomKey('idk_sec_', 40);
-    const updated: ApiSettings = {
-      apiKey: newKey,
-      secretKey: newSecret,
-      lastGeneratedAt: new Date().toISOString(),
-      generatedBy: currentUser ? `${currentUser.name} (${currentUser.role})` : 'Admin',
-    };
-    setApiSettings(updated);
-    addLog('REGENERATE_API_KEYS', 'Admin meregenerasi API Key dan Secret Key integrasi sistem.');
+    api.regenerateApiKeys(currentUser?.name)
+      .then((newSettings) => {
+        setApiSettings(newSettings);
+        api.getLogs().then(setLogs);
+      })
+      .catch(console.error);
   };
 
+  // Reset System Data
   const resetAllData = () => {
-    setEmployees(INITIAL_EMPLOYEES);
-    setCategories(INITIAL_CATEGORIES);
-    setProjects(INITIAL_PROJECTS);
-    setUsers(INITIAL_USERS);
-    setFundRequests(INITIAL_FUND_REQUESTS);
-    setGroupDisbursements(INITIAL_GROUP_DISBURSEMENTS);
-    setIncomeRecords(INITIAL_INCOME_RECORDS);
-    setTransactions(INITIAL_TRANSACTIONS);
-    setLogs(INITIAL_LOGS);
-    setApiSettings(INITIAL_API_SETTINGS);
-    addLog('RESET_SYSTEM', 'Seluruh data di-reset ke data mock awal PT. Inovasi Digital Kreasi.');
+    if (confirm('Apakah Anda yakin ingin mereset seluruh data kembali ke database awal?')) {
+      api.resetDatabase()
+        .then(() => refreshAllData())
+        .catch(console.error);
+    }
   };
 
   return (
@@ -676,6 +717,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setActiveMenu,
         isSidebarOpen,
         setIsSidebarOpen,
+        isLoading,
         login,
         logout,
         switchUser,
@@ -700,6 +742,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         createGroupDisbursement,
         updateGroupDisbursement,
         deleteGroupDisbursement,
+        executeGroupDisbursement,
         createIncomeRecord,
         deleteIncomeRecord,
         addEmployee,
@@ -717,6 +760,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         regenerateApiKeys,
         addLog,
         resetAllData,
+        refreshAllData,
       }}
     >
       {children}
@@ -731,7 +775,3 @@ export const useApp = () => {
   }
   return context;
 };
-
-function formatRupiahSimple(num: number): string {
-  return 'Rp ' + num.toLocaleString('id-ID');
-}
